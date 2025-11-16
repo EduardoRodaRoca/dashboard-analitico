@@ -1,5 +1,6 @@
 import { fetchClientes, type ClienteRecord } from "@/lib/api/clientes";
 import { mockClientes, mockLeadInsights, mockPedidos } from "@/lib/mock-data";
+import { resolveMediaUrl } from "@/lib/utils/media-url";
 import Image from "next/image";
 import { ClientCardActions, ClientCreateButton } from "./client-actions";
 
@@ -255,18 +256,20 @@ export default async function ClientsPage() {
       <section className="space-y-4">
         {crmFichas.map((ficha: CrmFicha) => {
           const { cliente, etapa, pedidos, montoConfirmado, montoPendiente, ultimoInsight, ultimaActividad } = ficha;
+          const photoUrl = resolveMediaUrl(cliente.imageUrl);
           return (
             <article key={cliente.idCliente} className="rounded-3xl border border-white/60 bg-white/95 p-5 shadow-sm">
               <div className="flex flex-wrap items-start gap-4">
                 <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-slate-100 text-sm font-semibold uppercase text-slate-500">
-                  {cliente.imageUrl ? (
+                  {photoUrl ? (
                     <Image
-                      src={cliente.imageUrl}
+                      src={photoUrl}
                       alt={`Foto de ${cliente.nombreCompleto}`}
                       width={56}
                       height={56}
                       className="h-full w-full object-cover"
                       sizes="56px"
+                      unoptimized
                     />
                   ) : (
                     getInitials(cliente.nombreCompleto)

@@ -1,5 +1,6 @@
 import { fetchProductos, type ProductoRecord } from "@/lib/api/productos";
 import { mockPreciosPropios, mockProductos } from "@/lib/mock-data";
+import { resolveMediaUrl } from "@/lib/utils/media-url";
 import Image from "next/image";
 import { ProductCreateButton } from "./product-actions";
 
@@ -18,7 +19,7 @@ const latestPrices = mockPreciosPropios.reduce<Record<number, typeof mockPrecios
 const normalizeProductImage = (producto: ProductoRecord) => {
   const urlCandidates = [producto.imageUrl, (producto as Record<string, unknown>).image_url];
   const resolved = urlCandidates.find((value): value is string => typeof value === "string" && value.length > 0);
-  return resolved;
+  return resolveMediaUrl(resolved);
 };
 
 const addImageToProductos = (items: ProductoRecord[]) =>
@@ -129,6 +130,7 @@ export default async function ProductsPage() {
                                 height={56}
                                 className="h-full w-full object-cover"
                                 sizes="56px"
+                                unoptimized
                               />
                             ) : (
                               <div className="flex h-full w-full items-center justify-center text-xs font-semibold uppercase text-slate-400">

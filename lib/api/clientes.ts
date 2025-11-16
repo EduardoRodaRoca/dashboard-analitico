@@ -18,6 +18,7 @@ export type ClienteRecord = {
 };
 
 export type ClienteCreatePayload = {
+  id_cliente: number;
   nombre_completo: string;
   email: string;
   telefono: string;
@@ -29,7 +30,7 @@ export type ClienteCreatePayload = {
   image_url?: string;
 };
 
-export type ClienteUpdatePayload = Partial<ClienteCreatePayload>;
+export type ClienteUpdatePayload = Partial<Omit<ClienteCreatePayload, "id_cliente">>;
 
 export async function fetchClientes(): Promise<ClienteRecord[]> {
   const res = await fetch(CLIENTES_API_BASE, { cache: "no-store" });

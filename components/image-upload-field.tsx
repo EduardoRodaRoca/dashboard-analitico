@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useId, useState } from "react";
 import { uploadImage } from "@/lib/api/upload-image";
+import { resolveMediaUrl } from "@/lib/utils/media-url";
 
 export type ImageUploadFieldProps = {
   label: string;
@@ -17,6 +18,7 @@ export function ImageUploadField({ label, folder, value, disabled, onChangeActio
   const inputId = useId();
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const previewUrl = resolveMediaUrl(value);
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -48,14 +50,15 @@ export function ImageUploadField({ label, folder, value, disabled, onChangeActio
       </label>
       <div className="flex flex-wrap items-center gap-4">
         <div className="h-20 w-20 overflow-hidden rounded-2xl bg-slate-100">
-          {value ? (
+          {previewUrl ? (
             <Image
-              src={value}
+              src={previewUrl}
               alt={`Vista previa de ${label.toLowerCase()}`}
               width={80}
               height={80}
               className="h-full w-full object-cover"
               sizes="80px"
+              unoptimized
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-xs font-semibold uppercase text-slate-400">

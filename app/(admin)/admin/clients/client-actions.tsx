@@ -1,11 +1,18 @@
 "use client";
 
-import { createCliente, deleteCliente, updateCliente, type ClienteCreatePayload } from "@/lib/api/clientes";
+import {
+  createCliente,
+  deleteCliente,
+  updateCliente,
+  type ClienteCreatePayload,
+  type ClienteUpdatePayload,
+} from "@/lib/api/clientes";
 import { useRouter } from "next/navigation";
 import { type FormEvent, type ReactNode, useMemo, useState, useTransition } from "react";
 import { ImageUploadField } from "@/components/image-upload-field";
 
 type ClienteFormValues = {
+  idCliente: string;
   nombreCompleto: string;
   email: string;
   telefono: string;
@@ -31,6 +38,7 @@ type ClienteEditable = {
 };
 
 const fieldConfig: Array<{ name: keyof ClienteFormValues; label: string; type?: string; placeholder?: string }> = [
+  { name: "idCliente", label: "ID cliente", type: "number" },
   { name: "nombreCompleto", label: "Nombre completo" },
   { name: "email", label: "Email", type: "email" },
   { name: "telefono", label: "Teléfono" },
@@ -48,9 +56,9 @@ const normalizeImageUrl = (value: string): string | undefined => {
   return trimmed ? trimmed : undefined;
 };
 
-const valuesToPayload = (values: ClienteFormValues): ClienteCreatePayload => {
+const buildBasePayload = (values: ClienteFormValues) => {
   const imageUrl = normalizeImageUrl(values.imageUrl);
-  const payload: ClienteCreatePayload = {
+  const payload: Omit<ClienteCreatePayload, "id_cliente"> = {
     nombre_completo: values.nombreCompleto.trim(),
     email: values.email.trim(),
     telefono: values.telefono.trim(),
@@ -68,7 +76,24 @@ const valuesToPayload = (values: ClienteFormValues): ClienteCreatePayload => {
   return payload;
 };
 
+const valuesToCreatePayload = (values: ClienteFormValues): ClienteCreatePayload => {
+  const parsedId = Number(values.idCliente);
+  if (!Number.isInteger(parsedId) || parsedId <= 0) {
+    throw new Error("Debes definir un ID numérico válido.");
+  }
+
+  return {
+    id_cliente: parsedId,
+    ...buildBasePayload(values),
+  };
+};
+
+const valuesToUpdatePayload = (values: ClienteFormValues): ClienteUpdatePayload => ({
+  ...buildBasePayload(values),
+});
+
 const buildEmptyValues = (): ClienteFormValues => ({
+  idCliente: "",
   nombreCompleto: "",
   email: "",
   telefono: "",
@@ -81,6 +106,7 @@ const buildEmptyValues = (): ClienteFormValues => ({
 });
 
 const clienteToValues = (cliente: ClienteEditable): ClienteFormValues => ({
+  idCliente: String(cliente.idCliente),
   nombreCompleto: cliente.nombreCompleto,
   email: cliente.email,
   telefono: cliente.telefono,
@@ -126,11 +152,12 @@ type ClienteFormFieldsProps = {
   values: ClienteFormValues;
   onChange: (field: keyof ClienteFormValues, value: string) => void;
   disabled?: boolean;
+  lockId?: boolean;
 };
 
 const optionalFields = new Set<keyof ClienteFormValues>(["telefono"]);
 
-const ClienteFormFields = ({ values, onChange, disabled }: ClienteFormFieldsProps) => (
+const ClienteFormFields = ({ values, onChange, disabled, lockId }: ClienteFormFieldsProps) => (
   <div className="grid gap-3 sm:grid-cols-2">
     {fieldConfig.map(({ name, label, type, placeholder }) => (
       <label key={name} className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
@@ -139,7 +166,7 @@ const ClienteFormFields = ({ values, onChange, disabled }: ClienteFormFieldsProp
           className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:border-rose-300 focus:outline-none focus:ring-1 focus:ring-rose-200 disabled:cursor-not-allowed disabled:bg-slate-50"
           type={type ?? "text"}
           value={values[name]}
-          disabled={disabled}
+          disabled={Boolean(disabled) || (lockId && name === "idCliente")}
           onChange={(event) => onChange(name, event.target.value)}
           placeholder={placeholder}
           required={!optionalFields.has(name)}
@@ -188,7 +215,8 @@ export const ClientCreateButton = () => {
     setErrorMessage(null);
     startTransition(async () => {
       try {
-        await createCliente(valuesToPayload(values));
+        const payload = valuesToCreatePayload(values);
+        await createCliente(payload);
         setOpen(false);
         setValues(buildEmptyValues());
         router.refresh();
@@ -252,7 +280,8 @@ export const ClientCardActions = ({ cliente }: { cliente: ClienteEditable }) => 
     setErrorMessage(null);
     startTransition(async () => {
       try {
-        await updateCliente(cliente.idCliente, valuesToPayload(values));
+        const payload = valuesToUpdatePayload(values);
+        await updateCliente(cliente.idCliente, payload);
         setEditOpen(false);
         router.refresh();
       } catch (error) {
@@ -303,7 +332,12 @@ export const ClientCardActions = ({ cliente }: { cliente: ClienteEditable }) => 
           onClose={resetAndClose}
         >
           <form className="space-y-4" onSubmit={handleEdit}>
-            <ClienteFormFields values={values} disabled={isPending} onChange={(field, value) => setValues((prev) => ({ ...prev, [field]: value }))} />
+            <ClienteFormFields
+              values={values}
+              disabled={isPending}
+              lockId
+              onChange={(field, value) => setValues((prev) => ({ ...prev, [field]: value }))}
+            />
             <ImageUploadField
               label="Foto del cliente"
               folder="clientes"

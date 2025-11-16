@@ -1,7 +1,7 @@
 "use client";
 
 import { ImageUploadField } from "@/components/image-upload-field";
-import { createProducto } from "@/lib/api/productos";
+import { createProducto, type ProductoCreatePayload } from "@/lib/api/productos";
 import { useRouter } from "next/navigation";
 import { type FormEvent, type ReactNode, useState, useTransition } from "react";
 
@@ -26,21 +26,48 @@ const parseList = (value: string) =>
     .map((token) => token.trim())
     .filter(Boolean);
 
-const valuesToPayload = (values: ProductFormValues) => {
-  const payload: Record<string, unknown> = {
-    skuInterno: values.skuInterno.trim(),
+const generateProductoId = () => {
+  // Timestamp plus a random suffix keeps ids unique without asking the user for them.
+  const timeComponent = Date.now();
+  const randomComponent = Math.floor(Math.random() * 1000);
+  return Number(`${timeComponent}${randomComponent.toString().padStart(3, "0")}`);
+};
+
+const parseOptionalNumber = (raw: string, label: string): number | undefined => {
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`El campo ${label} debe ser numérico.`);
+  }
+  return parsed;
+};
+
+const valuesToCreatePayload = (values: ProductFormValues): ProductoCreatePayload => {
+  const payload: ProductoCreatePayload = {
+    id_producto: generateProductoId(),
+    sku_interno: values.skuInterno.trim(),
     nombre: values.nombre.trim(),
     categoria: values.categoria.trim(),
     marca: values.marca.trim(),
     activo: values.activo,
-    fechaCreacion: new Date().toISOString(),
+    fecha_creacion: new Date().toISOString(),
   };
 
-  if (values.anchoCm) payload.anchoCm = Number(values.anchoCm);
-  if (values.altoCm) payload.altoCm = Number(values.altoCm);
-  if (values.caracteristicas.trim()) payload.caracteristicas = parseList(values.caracteristicas);
-  if (values.acabados.trim()) payload.acabados = parseList(values.acabados);
-  if (values.imageUrl.trim()) payload.image_url = values.imageUrl.trim();
+  const ancho = parseOptionalNumber(values.anchoCm, "ancho en cm");
+  if (typeof ancho !== "undefined") payload.ancho_cm = ancho;
+
+  const alto = parseOptionalNumber(values.altoCm, "alto en cm");
+  if (typeof alto !== "undefined") payload.alto_cm = alto;
+
+  const features = parseList(values.caracteristicas);
+  if (features.length) payload.caracteristicas = features;
+
+  const finishes = parseList(values.acabados);
+  if (finishes.length) payload.acabados = finishes;
+
+  const imageUrl = values.imageUrl.trim();
+  if (imageUrl) payload.image_url = imageUrl;
 
   return payload;
 };
@@ -151,7 +178,8 @@ export function ProductCreateButton() {
     setErrorMessage(null);
     startTransition(async () => {
       try {
-        await createProducto(valuesToPayload(values));
+        const payload = valuesToCreatePayload(values);
+        await createProducto(payload);
         resetForm();
         setOpen(false);
         router.refresh();
