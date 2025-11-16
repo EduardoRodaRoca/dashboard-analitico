@@ -1,6 +1,6 @@
 "use client";
 
-import { ImageUploadField } from "@/components/image-upload-field";
+import { MultiImageUploadField } from "@/components/multi-image-upload-field";
 import {
   createProducto,
   deleteProducto,
@@ -22,10 +22,12 @@ const initialProductState = () => ({
   caracteristicas: "",
   acabados: "",
   activo: true,
-  imageUrl: "",
+  imageUrls: [] as string[],
 });
 
 type ProductFormValues = ReturnType<typeof initialProductState>;
+
+const MAX_PRODUCT_IMAGES = 3;
 
 const parseList = (value: string) =>
   value
@@ -49,6 +51,12 @@ const parseOptionalNumber = (raw: string, label: string): number | undefined => 
   }
   return parsed;
 };
+
+const sanitizeImageList = (values: string[]): string[] =>
+  values
+    .map((url) => url.trim())
+    .filter(Boolean)
+    .slice(0, MAX_PRODUCT_IMAGES);
 
 const pickValue = (record: Record<string, unknown>, ...keys: string[]) => {
   for (const key of keys) {
@@ -83,6 +91,25 @@ const ensureArrayCsv = (value: unknown): string => {
   return "";
 };
 
+const extractImageList = (producto: ProductoRecord): string[] => {
+  const source = producto as Record<string, unknown>;
+  const rawList = pickValue(source, "imageUrls", "image_urls");
+  let gallery: string[] = [];
+  if (Array.isArray(rawList)) {
+    gallery = rawList
+      .map((entry) => (typeof entry === "string" ? entry : typeof entry === "number" ? String(entry) : ""))
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+  if (!gallery.length) {
+    const fallback = pickValue(source, "imageUrl", "image_url");
+    if (typeof fallback === "string" && fallback.trim()) {
+      gallery = [fallback.trim()];
+    }
+  }
+  return gallery.slice(0, MAX_PRODUCT_IMAGES);
+};
+
 const buildBasePayload = (values: ProductFormValues): Omit<ProductoCreatePayload, "id_producto" | "fecha_creacion"> => {
   const payload: Omit<ProductoCreatePayload, "id_producto" | "fecha_creacion"> = {
     sku_interno: values.skuInterno.trim(),
@@ -104,8 +131,13 @@ const buildBasePayload = (values: ProductFormValues): Omit<ProductoCreatePayload
   const finishes = parseList(values.acabados);
   if (finishes.length) payload.acabados = finishes;
 
-  const imageUrl = values.imageUrl.trim();
-  if (imageUrl) payload.image_url = imageUrl;
+  const gallery = sanitizeImageList(values.imageUrls ?? []);
+  payload.imageUrls = gallery;
+  if (gallery.length) {
+    payload.image_url = gallery[0];
+  } else {
+    delete (payload as Record<string, unknown>).image_url;
+  }
 
   return payload;
 };
@@ -133,7 +165,7 @@ const productoToFormValues = (producto: ProductoRecord): ProductFormValues => {
   base.caracteristicas = ensureArrayCsv(pickValue(source, "caracteristicas"));
   base.acabados = ensureArrayCsv(pickValue(source, "acabados"));
   base.activo = typeof producto.activo === "boolean" ? producto.activo : Boolean(pickValue(source, "activo") ?? true);
-  base.imageUrl = ensureStringValue(pickValue(source, "imageUrl", "image_url"));
+  base.imageUrls = extractImageList(producto);
   return base;
 };
 
@@ -270,13 +302,13 @@ export function ProductCreateButton() {
         <Modal title="Registrar producto" description="Sube referencias y atributos clave" onClose={() => setOpen(false)}>
           <form className="space-y-4" onSubmit={handleSubmit}>
             <ProductFormFields values={values} disabled={isPending} onChange={handleInputChange} />
-            <ImageUploadField
-              label="Foto del producto"
+            <MultiImageUploadField
+              label="Fotos del producto"
               folder="productos"
-              value={values.imageUrl || null}
+              values={values.imageUrls}
               disabled={isPending}
-              onChangeAction={(url) => setValues((prev) => ({ ...prev, imageUrl: url ?? "" }))}
-              helperText="Idealmente 1200x1200 px"
+              onChangeAction={(urls) => setValues((prev) => ({ ...prev, imageUrls: urls }))}
+              helperText="Hasta 3 imágenes · la primera se mostrará en el catálogo"
             />
             {errorMessage && <p className="text-sm text-rose-600">{errorMessage}</p>}
             <div className="flex flex-wrap gap-3">
@@ -388,13 +420,13 @@ export function ProductRowActions({ producto }: { producto: ProductoRecord }) {
         >
           <form className="space-y-4" onSubmit={handleEditSubmit}>
             <ProductFormFields values={values} disabled={isPending} onChange={handleInputChange} />
-            <ImageUploadField
-              label="Foto del producto"
+            <MultiImageUploadField
+              label="Fotos del producto"
               folder="productos"
-              value={values.imageUrl || null}
+              values={values.imageUrls}
               disabled={isPending}
-              onChangeAction={(url) => setValues((prev) => ({ ...prev, imageUrl: url ?? "" }))}
-              helperText="Actualiza la referencia visual"
+              onChangeAction={(urls) => setValues((prev) => ({ ...prev, imageUrls: urls }))}
+              helperText="Hasta 3 fotos · la primera queda como portada"
             />
             {errorMessage && <p className="text-sm text-rose-600">{errorMessage}</p>}
             <div className="flex flex-wrap gap-3">

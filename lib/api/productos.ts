@@ -10,6 +10,8 @@ export type ProductoRecord = {
   categoria: string;
   marca: string;
   activo: boolean;
+  imageUrls?: string[];
+  image_urls?: string[];
   imageUrl?: string | null;
   image_url?: string | null;
 } & Record<string, unknown>;
@@ -26,6 +28,7 @@ export type ProductoCreatePayload = {
   alto_cm?: number;
   caracteristicas?: string[];
   acabados?: string[];
+  imageUrls?: string[];
   image_url?: string;
 };
 

@@ -16,17 +16,40 @@ const latestPrices = mockPreciosPropios.reduce<Record<number, typeof mockPrecios
   },
   {},
 );
-const normalizeProductImage = (producto: ProductoRecord) => {
-  const urlCandidates = [producto.imageUrl, (producto as Record<string, unknown>).image_url];
+const extractProductImageList = (producto: ProductoRecord) => {
+  const source = producto as Record<string, unknown>;
+  const rawList = source.imageUrls ?? source.image_urls;
+  let gallery: string[] = [];
+  if (Array.isArray(rawList)) {
+    gallery = rawList
+      .map((entry) => (typeof entry === "string" ? entry : typeof entry === "number" ? String(entry) : ""))
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+  if (!gallery.length) {
+    const fallback = source.imageUrl ?? source.image_url;
+    if (typeof fallback === "string" && fallback.trim()) {
+      gallery = [fallback.trim()];
+    }
+  }
+  return gallery.slice(0, 3);
+};
+
+const resolvePrimaryProductImage = (producto: ProductoRecord, gallery: string[]) => {
+  const urlCandidates = [gallery[0], producto.imageUrl, (producto as Record<string, unknown>).image_url];
   const resolved = urlCandidates.find((value): value is string => typeof value === "string" && value.length > 0);
   return resolveMediaUrl(resolved);
 };
 
 const addImageToProductos = (items: ProductoRecord[]) =>
-  items.map((producto) => ({
-    ...producto,
-    imageUrl: normalizeProductImage(producto),
-  }));
+  items.map((producto) => {
+    const gallery = extractProductImageList(producto);
+    return {
+      ...producto,
+      imageUrls: gallery,
+      imageUrl: resolvePrimaryProductImage(producto, gallery),
+    };
+  });
 
 const getProductoMonogram = (nombre: string) => nombre.trim().slice(0, 2).toUpperCase() || "PR";
 
