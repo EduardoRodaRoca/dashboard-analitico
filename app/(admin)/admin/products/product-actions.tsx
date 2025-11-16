@@ -9,6 +9,8 @@ import {
   type ProductoRecord,
   type ProductoUpdatePayload,
 } from "@/lib/api/productos";
+import { createPrecioPropio, type PrecioFuente } from "@/lib/api/precios-propios";
+import { type Moneda } from "@/lib/data-models";
 import { useRouter } from "next/navigation";
 import { type FormEvent, type ReactNode, useState, useTransition } from "react";
 
@@ -27,6 +29,22 @@ const initialProductState = () => ({
 
 type ProductFormValues = ReturnType<typeof initialProductState>;
 
+type PriceFormValues = {
+  price: string;
+  currency: Moneda;
+  startDate: string;
+  endDate: string;
+  source: PrecioFuente;
+};
+
+const initialPriceState = (): PriceFormValues => ({
+  price: "",
+  currency: "BOB",
+  startDate: getLocalDateTimeInputValue(),
+  endDate: "",
+  source: "lista_base",
+});
+
 const MAX_PRODUCT_IMAGES = 3;
 
 const parseList = (value: string) =>
@@ -40,6 +58,38 @@ const generateProductoId = () => {
   const timeComponent = Date.now();
   const randomComponent = Math.floor(Math.random() * 1000);
   return Number(`${timeComponent}${randomComponent.toString().padStart(3, "0")}`);
+};
+
+const generatePrecioId = () => {
+  const timeComponent = Date.now();
+  const randomComponent = Math.floor(Math.random() * 1000);
+  return Number(`${timeComponent}${randomComponent.toString().padStart(3, "0")}`);
+};
+
+const PRICE_SOURCES: PrecioFuente[] = ["lista_base", "promo", "custom"];
+
+const getLocalDateTimeInputValue = (date: Date = new Date()) => {
+  const offsetMs = date.getTimezoneOffset() * 60 * 1000;
+  const local = new Date(date.getTime() - offsetMs);
+  return local.toISOString().slice(0, 16);
+};
+
+const parseIsoFromLocalInput = (value: string, label: string) => {
+  if (!value) return undefined;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`La fecha de ${label} no es válida.`);
+  }
+  return parsed.toISOString();
+};
+
+const formatCurrencyValue = (value: number, currency: string) => {
+  if (typeof value !== "number" || Number.isNaN(value)) return "—";
+  try {
+    return new Intl.NumberFormat("es-BO", { style: "currency", currency }).format(value);
+  } catch {
+    return `${currency} ${value.toFixed(2)}`;
+  }
 };
 
 const parseOptionalNumber = (raw: string, label: string): number | undefined => {
@@ -337,7 +387,12 @@ export function ProductCreateButton() {
   );
 }
 
-export function ProductRowActions({ producto }: { producto: ProductoRecord }) {
+type ProductRowActionsProps = {
+  producto: ProductoRecord;
+  currentPrice?: { amount: number; currency: Moneda | string; source?: PrecioFuente } | null;
+};
+
+export function ProductRowActions({ producto, currentPrice }: ProductRowActionsProps) {
   const router = useRouter();
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -346,10 +401,19 @@ export function ProductRowActions({ producto }: { producto: ProductoRecord }) {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [isDeletePending, startDeleteTransition] = useTransition();
+  const [priceOpen, setPriceOpen] = useState(false);
+  const [priceValues, setPriceValues] = useState<PriceFormValues>(() => initialPriceState());
+  const [priceError, setPriceError] = useState<string | null>(null);
+  const [isPricePending, startPriceTransition] = useTransition();
 
   const resetEditState = () => {
     setValues(productoToFormValues(producto));
     setErrorMessage(null);
+  };
+
+  const resetPriceState = () => {
+    setPriceValues(initialPriceState());
+    setPriceError(null);
   };
 
   const handleInputChange = <K extends keyof ProductFormValues>(field: K, value: ProductFormValues[K]) => {
@@ -384,9 +448,45 @@ export function ProductRowActions({ producto }: { producto: ProductoRecord }) {
     });
   };
 
+  const handlePriceSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setPriceError(null);
+    startPriceTransition(async () => {
+      try {
+        const price = Number(priceValues.price);
+        if (!Number.isFinite(price) || price <= 0) {
+          throw new Error("El precio debe ser un número positivo.");
+        }
+        const fechaInicio = parseIsoFromLocalInput(priceValues.startDate, "inicio");
+        if (!fechaInicio) throw new Error("La fecha de inicio es obligatoria.");
+        const fechaFin = parseIsoFromLocalInput(priceValues.endDate, "fin");
+
+        const payload = {
+          id_precio: generatePrecioId(),
+          id_producto: producto.idProducto,
+          precio: price,
+          moneda: priceValues.currency,
+          fecha_inicio: fechaInicio,
+          fuente: priceValues.source,
+        } as const;
+
+        await createPrecioPropio({
+          ...payload,
+          ...(fechaFin ? { fecha_fin: fechaFin } : {}),
+        });
+
+        resetPriceState();
+        setPriceOpen(false);
+        router.refresh();
+      } catch (error) {
+        setPriceError(error instanceof Error ? error.message : "No pudimos registrar el precio");
+      }
+    });
+  };
+
   return (
     <>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-rose-200 hover:text-rose-600"
@@ -397,6 +497,21 @@ export function ProductRowActions({ producto }: { producto: ProductoRecord }) {
         >
           Editar
         </button>
+        <button
+          type="button"
+          className="rounded-full border border-emerald-200 px-3 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50"
+          onClick={() => {
+            resetPriceState();
+            setPriceOpen(true);
+          }}
+        >
+          {currentPrice ? formatCurrencyValue(currentPrice.amount, currentPrice.currency) : "Añadir precio"}
+        </button>
+        {currentPrice?.source && (
+          <span className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+            {currentPrice.source}
+          </span>
+        )}
         <button
           type="button"
           className="rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600 transition hover:bg-rose-50"
@@ -479,6 +594,104 @@ export function ProductRowActions({ producto }: { producto: ProductoRecord }) {
               Cancelar
             </button>
           </div>
+        </Modal>
+      )}
+
+      {priceOpen && (
+        <Modal
+          title={`Añadir precio a ${producto.nombre}`}
+          description={`SKU ${producto.skuInterno}`}
+          onClose={() => {
+            setPriceOpen(false);
+            resetPriceState();
+          }}
+        >
+          <form className="space-y-4" onSubmit={handlePriceSubmit}>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                Precio
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:border-rose-300 focus:outline-none focus:ring-1 focus:ring-rose-200 disabled:cursor-not-allowed disabled:bg-slate-50"
+                  value={priceValues.price}
+                  onChange={(event) => setPriceValues((prev) => ({ ...prev, price: event.target.value }))}
+                  disabled={isPricePending}
+                  required
+                />
+              </label>
+              <label className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                Moneda
+                <select
+                  className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-900"
+                  value={priceValues.currency}
+                  onChange={(event) => setPriceValues((prev) => ({ ...prev, currency: event.target.value as Moneda }))}
+                  disabled={isPricePending}
+                >
+                  <option value="BOB">BOB</option>
+                  <option value="USD">USD</option>
+                </select>
+              </label>
+              <label className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                Fecha inicio
+                <input
+                  type="datetime-local"
+                  className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-900"
+                  value={priceValues.startDate}
+                  onChange={(event) => setPriceValues((prev) => ({ ...prev, startDate: event.target.value }))}
+                  disabled={isPricePending}
+                  required
+                />
+              </label>
+              <label className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                Fecha fin (opcional)
+                <input
+                  type="datetime-local"
+                  className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-900"
+                  value={priceValues.endDate}
+                  onChange={(event) => setPriceValues((prev) => ({ ...prev, endDate: event.target.value }))}
+                  disabled={isPricePending}
+                />
+              </label>
+              <label className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                Fuente
+                <select
+                  className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-900"
+                  value={priceValues.source}
+                  onChange={(event) => setPriceValues((prev) => ({ ...prev, source: event.target.value as PrecioFuente }))}
+                  disabled={isPricePending}
+                >
+                  {PRICE_SOURCES.map((source) => (
+                    <option key={source} value={source}>
+                      {source}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            {priceError && <p className="text-sm text-rose-600">{priceError}</p>}
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="submit"
+                disabled={isPricePending}
+                className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60"
+              >
+                {isPricePending ? "Guardando…" : "Guardar precio"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  resetPriceState();
+                  setPriceOpen(false);
+                }}
+                className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-rose-200 hover:text-rose-600"
+                disabled={isPricePending}
+              >
+                Cancelar
+              </button>
+            </div>
+          </form>
         </Modal>
       )}
     </>

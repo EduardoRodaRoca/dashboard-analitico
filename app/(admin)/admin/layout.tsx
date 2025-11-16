@@ -2,8 +2,6 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { SidebarNav } from "@/components/admin/sidebar-nav";
 import { Breadcrumbs } from "@/components/admin/breadcrumbs";
-import { RangeSelector } from "@/components/admin/range-selector";
-import { mockCatalogSummary } from "@/lib/mock-data";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -28,17 +26,6 @@ const navItems = [
   { label: "Analytics", href: "/admin/analytics", summary: "Cohortes y hotspots" },
   { label: "Competencia", href: "/admin/competition", summary: "Comparativo mercado" },
   { label: "Configuración", href: "/admin/settings", summary: "Alertas y roles" },
-];
-
-const quickStats = [
-  {
-    label: "Catálogo",
-    value: `${mockCatalogSummary.activos}/${mockCatalogSummary.totalProductos} activos`,
-  },
-  {
-    label: "Categorías",
-    value: `${mockCatalogSummary.categorias.length}`,
-  },
 ];
 
 export default function RootLayout({
@@ -99,15 +86,6 @@ export default function RootLayout({
                   <div>
                     <Breadcrumbs items={navItems} />
                     <p className="text-2xl font-semibold text-slate-900">Dashboard Ejecutivo</p>
-                  </div>
-                  <RangeSelector />
-                  <div className="ml-auto flex flex-wrap gap-4">
-                    {quickStats.map((stat) => (
-                      <div key={stat.label} className="rounded-2xl border border-slate-100 px-4 py-2 text-right">
-                        <p className="text-xs uppercase tracking-[0.3em] text-slate-400">{stat.label}</p>
-                        <p className="text-base font-semibold text-slate-900">{stat.value}</p>
-                      </div>
-                    ))}
                   </div>
                 </div>
               </header>

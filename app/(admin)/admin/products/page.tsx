@@ -1,4 +1,5 @@
 import { fetchProductos, type ProductoRecord } from "@/lib/api/productos";
+import { fetchPreciosPropios, type PrecioPropioRecord, type PrecioFuente } from "@/lib/api/precios-propios";
 import { mockPreciosPropios, mockProductos } from "@/lib/mock-data";
 import { resolveMediaUrl } from "@/lib/utils/media-url";
 import Image from "next/image";
@@ -7,15 +8,72 @@ import { ProductCreateButton, ProductRowActions } from "./product-actions";
 const formatCurrency = (value: number, currency: string) =>
   new Intl.NumberFormat("es-BO", { style: "currency", currency }).format(value);
 
-const latestPrices = mockPreciosPropios.reduce<Record<number, typeof mockPreciosPropios[number]>>(
-  (acc, precio) => {
-    if (!acc[precio.idProducto] || (acc[precio.idProducto].fechaInicio < precio.fechaInicio && !precio.fechaFin)) {
-      acc[precio.idProducto] = precio;
+type NormalizedPriceEvent = {
+  idPrecio: number;
+  idProducto: number;
+  precio: number;
+  moneda: string;
+  fuente: PrecioFuente;
+  fechaInicio: Date;
+  fechaFin?: Date | null;
+};
+
+const ensureNumber = (value: unknown): number | null => {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+};
+
+const ensureDate = (value: unknown): Date | undefined => {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  return undefined;
+};
+
+const normalizePrecioEvent = (record: PrecioPropioRecord): NormalizedPriceEvent | null => {
+  const source = record as Record<string, unknown>;
+  const idProducto = ensureNumber(source.idProducto ?? source.id_producto);
+  const idPrecio = ensureNumber(source.idPrecio ?? source.id_precio ?? `${Date.now()}${Math.random()}`);
+  const monto = ensureNumber(source.precio);
+  if (idProducto === null || idPrecio === null || monto === null) return null;
+  const moneda = typeof source.moneda === "string" && source.moneda.length ? source.moneda : "USD";
+  const fuente = (source.fuente as PrecioFuente | string) ?? "lista_base";
+  const fechaInicio = ensureDate(source.fechaInicio ?? source.fecha_inicio) ?? new Date(0);
+  const fechaFin = ensureDate(source.fechaFin ?? source.fecha_fin);
+
+  return {
+    idPrecio,
+    idProducto,
+    precio: monto,
+    moneda,
+    fuente: (fuente as PrecioFuente) ?? "lista_base",
+    fechaInicio,
+    fechaFin: fechaFin ?? (source.fechaFin === null || source.fecha_fin === null ? null : undefined),
+  } satisfies NormalizedPriceEvent;
+};
+
+const buildLatestPriceMap = (events: NormalizedPriceEvent[]) =>
+  events.reduce<Map<number, NormalizedPriceEvent>>((acc, event) => {
+    const existing = acc.get(event.idProducto);
+    if (!existing) {
+      acc.set(event.idProducto, event);
+      return acc;
+    }
+    const existingStart = existing.fechaInicio?.getTime() ?? 0;
+    const candidateStart = event.fechaInicio?.getTime() ?? 0;
+    const existingIsClosed = typeof existing.fechaFin !== "undefined" && existing.fechaFin !== null;
+    const candidateIsOpen = typeof event.fechaFin === "undefined" || event.fechaFin === null;
+    if (candidateStart > existingStart || (!existingIsClosed && candidateIsOpen && candidateStart >= existingStart)) {
+      acc.set(event.idProducto, event);
     }
     return acc;
-  },
-  {},
-);
+  }, new Map<number, NormalizedPriceEvent>());
 const extractProductImageList = (producto: ProductoRecord) => {
   const source = producto as Record<string, unknown>;
   const rawList = source.imageUrls ?? source.image_urls;
@@ -57,6 +115,9 @@ export default async function ProductsPage() {
   let productos: ProductoRecord[] = [];
   let fetchError: string | null = null;
   let usingFallback = false;
+  let preciosRaw: PrecioPropioRecord[] = [];
+  let priceFetchError: string | null = null;
+  let usingPriceFallback = false;
 
   try {
     const response = await fetchProductos();
@@ -78,7 +139,30 @@ export default async function ProductsPage() {
     usingFallback = true;
   }
 
+  try {
+    preciosRaw = await fetchPreciosPropios();
+  } catch (error) {
+    priceFetchError = error instanceof Error ? error.message : "Error desconocido";
+    preciosRaw = mockPreciosPropios.map((precio) => ({
+      idPrecio: precio.idPrecio,
+      idProducto: precio.idProducto,
+      precio: precio.precio,
+      moneda: precio.moneda,
+      fuente: precio.fuente,
+      fechaInicio: precio.fechaInicio.toISOString(),
+      fechaFin: precio.fechaFin ? precio.fechaFin.toISOString() : null,
+    }));
+    usingPriceFallback = true;
+  }
+
   productos = addImageToProductos(productos);
+  const normalizedPrices = preciosRaw
+    .map((price) => normalizePrecioEvent(price))
+    .filter((event): event is NormalizedPriceEvent => Boolean(event));
+  const latestPrices = buildLatestPriceMap(normalizedPrices);
+  const recentPriceEvents = [...normalizedPrices]
+    .sort((a, b) => (b.fechaInicio?.getTime() ?? 0) - (a.fechaInicio?.getTime() ?? 0))
+    .slice(0, 6);
 
   const productDictionary = new Map(productos.map((producto) => [producto.idProducto, producto]));
   const productCount = productos.length;
@@ -127,6 +211,11 @@ export default async function ProductsPage() {
               No pudimos cargar los productos desde la API ({fetchError}). {usingFallback ? "Mostramos el catalogo local como referencia." : "Intenta nuevamente."}
             </p>
           )}
+          {priceFetchError && (
+            <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm text-amber-700">
+              No pudimos cargar los precios desde la API ({priceFetchError}). {usingPriceFallback ? "Usamos el histórico local para no dejar la columna vacía." : "Intenta nuevamente."}
+            </p>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full border-separate border-spacing-y-3 text-sm">
               <thead>
@@ -140,7 +229,7 @@ export default async function ProductsPage() {
               </thead>
               <tbody>
                 {productos.map((producto) => {
-                  const precio = latestPrices[producto.idProducto];
+                  const precio = latestPrices.get(producto.idProducto);
                   return (
                     <tr key={producto.idProducto} className="rounded-2xl bg-slate-50/80 text-slate-700">
                       <td className="rounded-l-2xl px-4 py-3">
@@ -189,7 +278,14 @@ export default async function ProductsPage() {
                         </span>
                       </td>
                       <td className="rounded-r-2xl px-4 py-3 text-right">
-                        <ProductRowActions producto={producto} />
+                        <ProductRowActions
+                          producto={producto}
+                            currentPrice={
+                              precio
+                                ? { amount: precio.precio, currency: precio.moneda, source: precio.fuente }
+                                : undefined
+                            }
+                        />
                       </td>
                     </tr>
                   );
@@ -213,25 +309,29 @@ export default async function ProductsPage() {
           </button>
         </header>
         <div className="mt-5 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-          {mockPreciosPropios.slice(0, 6).map((precio) => {
-            const producto = productDictionary.get(precio.idProducto);
-            return (
-              <div key={precio.idPrecio} className="rounded-2xl border border-slate-100 p-4">
-                <p className="text-sm font-semibold text-slate-900">{producto?.nombre ?? `Producto ${precio.idProducto}`}</p>
-                <p className="text-xs text-slate-500">{producto?.skuInterno ?? `SKU n/d`}</p>
-                <p className="mt-3 text-2xl font-semibold text-slate-900">
-                  {formatCurrency(precio.precio, precio.moneda)}
-                </p>
-                <p className="text-xs text-slate-500">
-                  {precio.fechaInicio.toLocaleDateString("es-BO")}
-                  {precio.fechaFin ? ` → ${precio.fechaFin.toLocaleDateString("es-BO")}` : " · vigente"}
-                </p>
-                <span className="mt-2 inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
-                  {precio.fuente}
-                </span>
-              </div>
-            );
-          })}
+          {recentPriceEvents.length ? (
+            recentPriceEvents.map((precio) => {
+              const producto = productDictionary.get(precio.idProducto);
+              return (
+                <div key={`${precio.idPrecio}-${precio.idProducto}`} className="rounded-2xl border border-slate-100 p-4">
+                  <p className="text-sm font-semibold text-slate-900">{producto?.nombre ?? `Producto ${precio.idProducto}`}</p>
+                  <p className="text-xs text-slate-500">{producto?.skuInterno ?? `SKU n/d`}</p>
+                  <p className="mt-3 text-2xl font-semibold text-slate-900">
+                    {formatCurrency(precio.precio, precio.moneda)}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {precio.fechaInicio.toLocaleDateString("es-BO")}
+                    {precio.fechaFin ? ` → ${precio.fechaFin.toLocaleDateString("es-BO")}` : " · vigente"}
+                  </p>
+                  <span className="mt-2 inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                    {precio.fuente}
+                  </span>
+                </div>
+              );
+            })
+          ) : (
+            <p className="text-sm text-slate-500">Sin movimientos de precio recientes.</p>
+          )}
         </div>
       </section>
     </section>

@@ -24,57 +24,6 @@ const currencyFormatter = new Intl.NumberFormat("es-BO", { style: "currency", cu
 const formatDate = (date: Date) =>
   date.toLocaleDateString("es-BO", { day: "2-digit", month: "short", year: "numeric" });
 
-const acquisitionSummary = (() => {
-  const totalLeads = mockLeadInsights.length;
-  const leadsConPedido = new Set<number>();
-  const pendingValue = mockPedidos
-    .filter((pedido: PedidoType) => pedido.estado === "PENDIENTE")
-    .reduce((acc: number, pedido: PedidoType) => acc + pedido.montoTotal, 0);
-
-  mockLeadInsights.forEach((lead: LeadInsightType) => {
-    if (
-      mockPedidos.some(
-        (pedido: PedidoType) => pedido.idCliente === lead.idCliente && pedido.estado !== "CANCELADO",
-      )
-    ) {
-      leadsConPedido.add(lead.idCliente);
-    }
-  });
-
-  const conversion = totalLeads ? (leadsConPedido.size / totalLeads) * 100 : 0;
-
-  const leadToCloseDurations = mockLeadInsights
-    .map((lead: LeadInsightType) => {
-      const pedidoConfirmado = mockPedidos
-        .filter((pedido: PedidoType) => pedido.idCliente === lead.idCliente && pedido.estado === "CONFIRMADO")
-        .sort(
-          (a: PedidoType, b: PedidoType) => (a.fechaConfirmacion?.getTime() ?? 0) - (b.fechaConfirmacion?.getTime() ?? 0),
-        )[0];
-      if (!pedidoConfirmado?.fechaConfirmacion) return null;
-      const diffMs = pedidoConfirmado.fechaConfirmacion.getTime() - lead.fechaRegistro.getTime();
-      return Math.max(1, Math.round(diffMs / 86400000));
-    })
-    .filter((val: number | null): val is number => typeof val === "number");
-
-  const promedioCierre = leadToCloseDurations.length
-    ? leadToCloseDurations.reduce((acc: number, dias: number) => acc + dias, 0) / leadToCloseDurations.length
-    : 0;
-
-  const canales = mockLeadInsights.reduce<Record<string, number>>((acc: Record<string, number>, lead: LeadInsightType) => {
-    acc[lead.comoNosConocio] = (acc[lead.comoNosConocio] ?? 0) + 1;
-    return acc;
-  }, {});
-
-  return {
-    totalLeads,
-    leadsConPedido: leadsConPedido.size,
-    conversion,
-    pendingValue,
-    promedioCierre,
-    canales,
-  };
-})();
-
 type CrmFicha = {
   cliente: ClienteLite;
   pedidos: PedidoType[];
@@ -223,35 +172,6 @@ export default async function ClientsPage() {
           </p>
         )}
       </header>
-
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <article className="rounded-3xl border border-white/60 bg-white/95 p-5 shadow-sm">
-          <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Leads clasificados</p>
-          <p className="mt-3 text-3xl font-semibold text-slate-900">{acquisitionSummary.totalLeads}</p>
-          <p className="text-xs text-slate-500">Con insights de motivación</p>
-        </article>
-        <article className="rounded-3xl border border-white/60 bg-white/95 p-5 shadow-sm">
-          <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Conversión lead → pedido</p>
-          <p className="mt-3 text-3xl font-semibold text-slate-900">{acquisitionSummary.conversion.toFixed(1)}%</p>
-          <p className="text-xs text-slate-500">
-            {acquisitionSummary.leadsConPedido}/{acquisitionSummary.totalLeads} leads con cotización
-          </p>
-        </article>
-        <article className="rounded-3xl border border-white/60 bg-white/95 p-5 shadow-sm">
-          <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Pipeline abierto</p>
-          <p className="mt-3 text-3xl font-semibold text-slate-900">
-            {currencyFormatter.format(acquisitionSummary.pendingValue)}
-          </p>
-          <p className="text-xs text-slate-500">Pedidos pendientes de cierre</p>
-        </article>
-        <article className="rounded-3xl border border-white/60 bg-white/95 p-5 shadow-sm">
-          <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Tiempo a cierre</p>
-          <p className="mt-3 text-3xl font-semibold text-slate-900">
-            {acquisitionSummary.promedioCierre.toFixed(1)} días
-          </p>
-          <p className="text-xs text-slate-500">Promedio del último trimestre</p>
-        </article>
-      </section>
 
       <section className="space-y-4">
         {crmFichas.map((ficha: CrmFicha) => {

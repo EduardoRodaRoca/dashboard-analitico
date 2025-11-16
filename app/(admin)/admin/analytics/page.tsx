@@ -1,100 +1,81 @@
-const metrics = [
-  { label: "Visitas totales", value: "182.4K", change: "+18%", detail: "Últimos 30 días" },
-  { label: "Tasa de conversión", value: "4.6%", change: "+0.8pp", detail: "Email + Paid" },
-  { label: "Ticket promedio", value: "$1,320", change: "-3%", detail: "Quarter to date" },
-];
+import { fetchClientes, type ClienteRecord } from "@/lib/api/clientes";
+import { mockClientes } from "@/lib/mock-data";
 
-const cohortData = [
-  { cohort: "Semana 32", retention: 78, revenue: "$62K" },
-  { cohort: "Semana 33", retention: 74, revenue: "$55K" },
-  { cohort: "Semana 34", retention: 69, revenue: "$48K" },
-  { cohort: "Semana 35", retention: 66, revenue: "$43K" },
-];
+type ClienteLike = ClienteRecord | (typeof mockClientes)[number];
 
-const funnelSteps = [
-  { step: "Visitas", value: "182,412", pct: "100%" },
-  { step: "Evaluación", value: "58,910", pct: "32%" },
-  { step: "Demo", value: "12,441", pct: "6.8%" },
-  { step: "Cierre", value: "2,104", pct: "1.1%" },
-];
+const extractZoneLabel = (cliente: ClienteLike): string => {
+  const source = cliente as Record<string, unknown>;
+  const zoneCandidate = source.zona;
+  if (typeof zoneCandidate === "string" && zoneCandidate.trim()) return zoneCandidate.trim();
+  const cityCandidate = source.ciudad;
+  if (typeof cityCandidate === "string" && cityCandidate.trim()) return cityCandidate.trim();
+  return "Sin zona";
+};
 
-export default function AnalyticsPage() {
+const buildZoneHistogram = (clientes: ClienteLike[]) => {
+  const counts = clientes.reduce<Record<string, number>>((acc, cliente) => {
+    const zone = extractZoneLabel(cliente);
+    acc[zone] = (acc[zone] ?? 0) + 1;
+    return acc;
+  }, {});
+  return Object.entries(counts)
+    .map(([zone, total]) => ({ zone, total }))
+    .sort((a, b) => b.total - a.total);
+};
+
+export default async function AnalyticsPage() {
+  let clientes: ClienteLike[] = [];
+  let clientesError: string | null = null;
+  let usingFallback = false;
+
+  try {
+    const response = await fetchClientes();
+    clientes = response;
+  } catch (error) {
+    clientesError = error instanceof Error ? error.message : "Error desconocido";
+    clientes = mockClientes;
+    usingFallback = true;
+  }
+
+  const zoneHistogram = buildZoneHistogram(clientes);
+  const topZoneHistogram = zoneHistogram.slice(0, 6);
+  const maxZoneCount = topZoneHistogram[0]?.total ?? 1;
+
   return (
     <section className="space-y-8">
-      <header>
-        <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Analytics</p>
-        <div className="mt-2 flex flex-wrap items-center gap-3">
-          <h1 className="text-3xl font-semibold text-slate-900">Panel de comportamiento</h1>
-          <span className="pill">Actualizado realtime</span>
-        </div>
-        <p className="mt-1 text-sm text-slate-500">
-          Basado en eventos de Vercel Web Analytics y data warehouse Snowflake.
-        </p>
-      </header>
-
-      <section className="grid gap-4 md:grid-cols-3">
-        {metrics.map((metric) => (
-          <article key={metric.label} className="rounded-3xl border border-white/60 bg-white/95 p-6 shadow-sm">
-            <p className="text-xs uppercase tracking-[0.3em] text-slate-400">{metric.label}</p>
-            <p className="mt-3 text-3xl font-semibold text-slate-900">{metric.value}</p>
-            <p className="text-sm font-semibold text-rose-600">{metric.change}</p>
-            <p className="text-xs text-slate-500">{metric.detail}</p>
-          </article>
-        ))}
-      </section>
-
-      <section className="grid gap-6 lg:grid-cols-2">
-        <article className="space-y-4 rounded-3xl border border-white/60 bg-white/95 p-6 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Retención</p>
-              <p className="text-xl font-semibold text-slate-900">Cohortes recientes</p>
-            </div>
-            <button type="button" className="text-sm font-semibold text-rose-600">
-              Exportar CSV
-            </button>
+      <section className="rounded-3xl border border-white/60 bg-white/95 p-6 shadow-sm">
+        <header className="mb-4 flex items-center justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Clientes</p>
+            <p className="text-xl font-semibold text-slate-900">Concentración por zona</p>
           </div>
+          <span className="pill">Top {topZoneHistogram.length || 0}</span>
+        </header>
+        {clientesError && (
+          <p className="mb-4 rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-2 text-sm text-amber-700">
+            No pudimos actualizar la data de clientes ({clientesError}). {usingFallback ? "Mostramos los registros locales de referencia." : "Intenta nuevamente."}
+          </p>
+        )}
+        {topZoneHistogram.length ? (
           <div className="space-y-4">
-            {cohortData.map((row) => (
-              <div key={row.cohort} className="rounded-2xl border border-slate-100 px-4 py-3">
+            {topZoneHistogram.map(({ zone, total }) => (
+              <div key={zone} className="space-y-1">
                 <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
-                  <span>{row.cohort}</span>
-                  <span>{row.revenue}</span>
+                  <span>{zone}</span>
+                  <span>{total} clientes</span>
                 </div>
-                <div className="mt-2 h-3 overflow-hidden rounded-full bg-slate-100">
+                <div className="h-3 rounded-full bg-slate-100">
                   <div
                     className="h-full rounded-full bg-gradient-to-r from-rose-600 to-red-500"
-                    style={{ width: `${row.retention}%` }}
+                    style={{ width: `${Math.min(100, Math.max(12, (total / maxZoneCount) * 100))}%` }}
                   />
                 </div>
-                <p className="mt-1 text-xs text-slate-500">Retención {row.retention}%</p>
               </div>
             ))}
           </div>
-        </article>
-
-        <article className="space-y-4 rounded-3xl border border-white/60 bg-white/95 p-6 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Embudo</p>
-              <p className="text-xl font-semibold text-slate-900">Conversiones por etapa</p>
-            </div>
-            <span className="pill">Q4</span>
-          </div>
-          <div className="space-y-3">
-            {funnelSteps.map((step, index) => (
-              <div key={step.step} className="flex items-center gap-4">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-rose-50 text-sm font-semibold text-rose-600">
-                  {index + 1}
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm font-semibold text-slate-800">{step.step}</p>
-                  <p className="text-xs text-slate-500">{step.value} · {step.pct}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </article>
+        ) : (
+          <p className="text-sm text-slate-500">Aún no hay clientes registrados para analizar zonas.</p>
+        )}
       </section>
     </section>
   );
