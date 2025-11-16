@@ -19,13 +19,11 @@ export const metadata: Metadata = {
 };
 
 const navItems = [
-  { label: "Inicio", href: "/admin", summary: "Resumen ejecutivo" },
   { label: "Productos", href: "/admin/products", summary: "Catálogo y precios" },
   { label: "Clientes", href: "/admin/clients", summary: "Leads y cuentas" },
   { label: "Pedidos", href: "/admin/orders", summary: "Pipeline y operaciones" },
   { label: "Analytics", href: "/admin/analytics", summary: "Cohortes y hotspots" },
   { label: "Competencia", href: "/admin/competition", summary: "Comparativo mercado" },
-  { label: "Configuración", href: "/admin/settings", summary: "Alertas y roles" },
 ];
 
 export default function RootLayout({
