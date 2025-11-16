@@ -29,6 +29,8 @@ export type ProductoCreatePayload = {
   image_url?: string;
 };
 
+export type ProductoUpdatePayload = Partial<Omit<ProductoCreatePayload, "id_producto" | "fecha_creacion">>;
+
 export async function fetchProductos(): Promise<ProductoRecord[]> {
   const res = await fetch(PRODUCTOS_API_BASE, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to load productos");
@@ -55,4 +57,19 @@ export async function createProducto(producto: ProductoCreatePayload): Promise<P
   });
   if (!res.ok) await buildError(res, "Failed to create producto");
   return res.json();
+}
+
+export async function updateProducto(idProducto: number, producto: ProductoUpdatePayload): Promise<ProductoRecord> {
+  const res = await fetch(`${PRODUCTOS_API_BASE}${idProducto}/`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(producto),
+  });
+  if (!res.ok) await buildError(res, "Failed to update producto");
+  return res.json();
+}
+
+export async function deleteProducto(idProducto: number): Promise<void> {
+  const res = await fetch(`${PRODUCTOS_API_BASE}${idProducto}/`, { method: "DELETE" });
+  if (!res.ok) await buildError(res, "Failed to delete producto");
 }

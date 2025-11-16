@@ -2,7 +2,7 @@ import { fetchProductos, type ProductoRecord } from "@/lib/api/productos";
 import { mockPreciosPropios, mockProductos } from "@/lib/mock-data";
 import { resolveMediaUrl } from "@/lib/utils/media-url";
 import Image from "next/image";
-import { ProductCreateButton } from "./product-actions";
+import { ProductCreateButton, ProductRowActions } from "./product-actions";
 
 const formatCurrency = (value: number, currency: string) =>
   new Intl.NumberFormat("es-BO", { style: "currency", currency }).format(value);
@@ -112,6 +112,7 @@ export default async function ProductsPage() {
                   <th>Categoría</th>
                   <th>Precio vigente</th>
                   <th>Estado</th>
+                  <th className="text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -155,7 +156,7 @@ export default async function ProductsPage() {
                           </span>
                         )}
                       </td>
-                      <td className="rounded-r-2xl px-4 py-3">
+                      <td className="px-4 py-3">
                         <span
                           className={`rounded-full px-3 py-1 text-xs font-semibold ${
                             producto.activo ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500"
@@ -163,6 +164,9 @@ export default async function ProductsPage() {
                         >
                           {producto.activo ? "Activo" : "Inactivo"}
                         </span>
+                      </td>
+                      <td className="rounded-r-2xl px-4 py-3 text-right">
+                        <ProductRowActions producto={producto} />
                       </td>
                     </tr>
                   );

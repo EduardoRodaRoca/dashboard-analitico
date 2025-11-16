@@ -1,7 +1,14 @@
 "use client";
 
 import { ImageUploadField } from "@/components/image-upload-field";
-import { createProducto, type ProductoCreatePayload } from "@/lib/api/productos";
+import {
+  createProducto,
+  deleteProducto,
+  updateProducto,
+  type ProductoCreatePayload,
+  type ProductoRecord,
+  type ProductoUpdatePayload,
+} from "@/lib/api/productos";
 import { useRouter } from "next/navigation";
 import { type FormEvent, type ReactNode, useState, useTransition } from "react";
 
@@ -43,15 +50,46 @@ const parseOptionalNumber = (raw: string, label: string): number | undefined => 
   return parsed;
 };
 
-const valuesToCreatePayload = (values: ProductFormValues): ProductoCreatePayload => {
-  const payload: ProductoCreatePayload = {
-    id_producto: generateProductoId(),
+const pickValue = (record: Record<string, unknown>, ...keys: string[]) => {
+  for (const key of keys) {
+    if (key in record) {
+      const value = record[key];
+      if (value !== undefined && value !== null) return value;
+    }
+  }
+  return undefined;
+};
+
+const ensureStringValue = (value: unknown): string => {
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return String(value);
+  return "";
+};
+
+const ensureNumberString = (value: unknown): string => {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "string") return value;
+  return "";
+};
+
+const ensureArrayCsv = (value: unknown): string => {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => (typeof entry === "string" ? entry.trim() : typeof entry === "number" ? String(entry) : ""))
+      .filter(Boolean)
+      .join(", ");
+  }
+  if (typeof value === "string") return value;
+  return "";
+};
+
+const buildBasePayload = (values: ProductFormValues): Omit<ProductoCreatePayload, "id_producto" | "fecha_creacion"> => {
+  const payload: Omit<ProductoCreatePayload, "id_producto" | "fecha_creacion"> = {
     sku_interno: values.skuInterno.trim(),
     nombre: values.nombre.trim(),
     categoria: values.categoria.trim(),
     marca: values.marca.trim(),
     activo: values.activo,
-    fecha_creacion: new Date().toISOString(),
   };
 
   const ancho = parseOptionalNumber(values.anchoCm, "ancho en cm");
@@ -70,6 +108,33 @@ const valuesToCreatePayload = (values: ProductFormValues): ProductoCreatePayload
   if (imageUrl) payload.image_url = imageUrl;
 
   return payload;
+};
+
+const valuesToCreatePayload = (values: ProductFormValues): ProductoCreatePayload => ({
+  id_producto: generateProductoId(),
+  fecha_creacion: new Date().toISOString(),
+  ...buildBasePayload(values),
+});
+
+const valuesToUpdatePayload = (values: ProductFormValues): ProductoUpdatePayload => ({
+  ...buildBasePayload(values),
+});
+
+const productoToFormValues = (producto: ProductoRecord): ProductFormValues => {
+  const base = initialProductState();
+  const source = producto as Record<string, unknown>;
+
+  base.skuInterno = ensureStringValue(pickValue(source, "skuInterno", "sku_interno") ?? base.skuInterno);
+  base.nombre = ensureStringValue(pickValue(source, "nombre") ?? base.nombre);
+  base.categoria = ensureStringValue(pickValue(source, "categoria") ?? base.categoria);
+  base.marca = ensureStringValue(pickValue(source, "marca") ?? base.marca);
+  base.anchoCm = ensureNumberString(pickValue(source, "anchoCm", "ancho_cm"));
+  base.altoCm = ensureNumberString(pickValue(source, "altoCm", "alto_cm"));
+  base.caracteristicas = ensureArrayCsv(pickValue(source, "caracteristicas"));
+  base.acabados = ensureArrayCsv(pickValue(source, "acabados"));
+  base.activo = typeof producto.activo === "boolean" ? producto.activo : Boolean(pickValue(source, "activo") ?? true);
+  base.imageUrl = ensureStringValue(pickValue(source, "imageUrl", "image_url"));
+  return base;
 };
 
 type ModalProps = {
@@ -234,6 +299,154 @@ export function ProductCreateButton() {
               </button>
             </div>
           </form>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+export function ProductRowActions({ producto }: { producto: ProductoRecord }) {
+  const router = useRouter();
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [values, setValues] = useState<ProductFormValues>(() => productoToFormValues(producto));
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+  const [isDeletePending, startDeleteTransition] = useTransition();
+
+  const resetEditState = () => {
+    setValues(productoToFormValues(producto));
+    setErrorMessage(null);
+  };
+
+  const handleInputChange = <K extends keyof ProductFormValues>(field: K, value: ProductFormValues[K]) => {
+    setValues((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleEditSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setErrorMessage(null);
+    startTransition(async () => {
+      try {
+        const payload = valuesToUpdatePayload(values);
+        await updateProducto(producto.idProducto, payload);
+        setEditOpen(false);
+        router.refresh();
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : "No pudimos actualizar el producto");
+      }
+    });
+  };
+
+  const handleDelete = () => {
+    setDeleteError(null);
+    startDeleteTransition(async () => {
+      try {
+        await deleteProducto(producto.idProducto);
+        setDeleteOpen(false);
+        router.refresh();
+      } catch (error) {
+        setDeleteError(error instanceof Error ? error.message : "No pudimos eliminar el producto");
+      }
+    });
+  };
+
+  return (
+    <>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-rose-200 hover:text-rose-600"
+          onClick={() => {
+            resetEditState();
+            setEditOpen(true);
+          }}
+        >
+          Editar
+        </button>
+        <button
+          type="button"
+          className="rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600 transition hover:bg-rose-50"
+          onClick={() => {
+            setDeleteError(null);
+            setDeleteOpen(true);
+          }}
+        >
+          Eliminar
+        </button>
+      </div>
+
+      {editOpen && (
+        <Modal
+          title={`Editar ${producto.nombre}`}
+          description={`SKU ${producto.skuInterno}`}
+          onClose={() => {
+            setEditOpen(false);
+            resetEditState();
+          }}
+        >
+          <form className="space-y-4" onSubmit={handleEditSubmit}>
+            <ProductFormFields values={values} disabled={isPending} onChange={handleInputChange} />
+            <ImageUploadField
+              label="Foto del producto"
+              folder="productos"
+              value={values.imageUrl || null}
+              disabled={isPending}
+              onChangeAction={(url) => setValues((prev) => ({ ...prev, imageUrl: url ?? "" }))}
+              helperText="Actualiza la referencia visual"
+            />
+            {errorMessage && <p className="text-sm text-rose-600">{errorMessage}</p>}
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="submit"
+                disabled={isPending}
+                className="rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:opacity-60"
+              >
+                {isPending ? "Guardando…" : "Actualizar"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  resetEditState();
+                  setEditOpen(false);
+                }}
+                className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-rose-200 hover:text-rose-600"
+              >
+                Cancelar
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {deleteOpen && (
+        <Modal
+          title={`Eliminar ${producto.nombre}`}
+          description="Esta acción removerá el producto del catálogo."
+          onClose={() => setDeleteOpen(false)}
+        >
+          <p className="text-sm text-slate-600">
+            Confirma si deseas eliminar el SKU <span className="font-semibold">{producto.skuInterno}</span>. Este cambio no se puede deshacer.
+          </p>
+          {deleteError && <p className="text-sm text-rose-600">{deleteError}</p>}
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={isDeletePending}
+              className="rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:opacity-60"
+            >
+              {isDeletePending ? "Eliminando…" : "Eliminar"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setDeleteOpen(false)}
+              className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-rose-200 hover:text-rose-600"
+            >
+              Cancelar
+            </button>
+          </div>
         </Modal>
       )}
     </>
